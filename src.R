@@ -5,9 +5,13 @@ collect_id <- function(index, output_file, max_size = 1000000) {
     # index is the index column of the table that we want to get
     # chunk & pos are fixed arguments of the callback function
     function(chunk, pos) {
+        # ids is a global vector hence manipulated using <<-
         ids <- c(ids, chunk[[index]])
         ids <<- unique(ids)
         # if ids grow too large, write the partial result and reset the vector
+        # there is a small chance a repeated value will slip through if the
+        # value was already saved in the file but is unique in the ids vector
+        # but without this vector memory reset, RAM will be an issue again
         if (object.size(ids) > max_size) {
             write.table(as_tibble(ids), output_file, sep = "\t",
                         col.names = F, row.names = F, quote = F, append = T)
@@ -64,15 +68,16 @@ am_iso_aa_ens <- dplyr::rename(am_iso_aa_ens, "ID" = "X1")
 missing_from_am <- ensembl_canonical %>% filter(!ID %in% idmapping$ID)
 ### 1569 IDs in ensembl canonical but not in the main AM.
 print(missing_from_am %>% filter(ID %in% am_iso_aa_ens$ID))
-### 862 out of 1569 found in am_iso_aa
+### 862 out of 1569 found in AM_iso_aa
 missing_from_am <- missing_from_am %>% mutate(ID2 = sub("\\.\\d+$", "", ID))
 am_iso_aa_ens <- am_iso_aa_ens %>% mutate(ID2 = sub("\\.\\d+$", "", ID))
 print(missing_from_am %>% filter(ID2 %in% am_iso_aa_ens$ID2))
-### 1181 out of 1569 found in am_iso_aa if using stable IDs without version.
+### 1181 out of 1569 found in AM_iso_aa if using stable IDs without version.
 ids_to_add <- missing_from_am %>% filter(ID2 %in% am_iso_aa_ens$ID2)
 ids_to_add <- ids_to_add %>% mutate(uniprot_ID = "") %>% select("ID", "uniprot_ID")
 
 am_mapped_to_ensembl_canonical <- rows_insert(am_mapped_to_ensembl_canonical, ids_to_add)
+am_mapped_to_ensembl_canonical <- am_mapped_to_ensembl_canonical %>% mutate(ID2 = sub("\\.\\d+$", "", ID))
 ### Combine all IDs
 
 # Ensembl IDs that match to >1 Uniprot ID
@@ -128,8 +133,6 @@ invalid_am_ids <- c(invalid_am_ids, "ENST00000569103.2")
 ### 1 transcript is a non-functional IG according to OP. Added to invalids.
 
 am_mapped_to_ensembl_canonical <- am_mapped_to_ensembl_canonical %>% filter(!(ID %in% invalid_am_ids))
-### Final list of valid IDs.
-
 
 # --- Writing output
 
@@ -140,10 +143,8 @@ write_chunk <- function(chunk, pos) {
     chunk <- unique(chunk)
     colnames(chunk) <- c("CHROM", "POS", "REF", "ALT", "genome",
                          "uniprot_ID", "old_ID", "change", "score", "am_class")
-    # Filter for uniprot IDs that are in the mapping
     chunk <- chunk %>% filter(uniprot_ID %in% am_mapped_to_ensembl_canonical$uniprot_ID)
     if (nrow(chunk) > 0) {
-        # Map to the updated Ensembl IDs
         chunk <- left_join(chunk, am_mapped_to_ensembl_canonical, by = c("uniprot_ID" = "uniprot_ID"))
         subchunk <- select(chunk, "ID", "change", "score")
         subchunk <- unique(subchunk)
@@ -162,7 +163,9 @@ cat("ID\tchange\tscore\n", file = "am_iso_aa_output.tsv")
 write_chunk <- function(chunk, pos) {
     chunk <- unique(chunk)
     colnames(chunk) <- c("ID", "change", "score", "am_class")
-    chunk <- chunk %>% filter(ID %in% am_mapped_to_ensembl_canonical$ID)
+    chunk <- chunk %>% mutate(ID2 = sub("\\.\\d+$", "", ID))
+    # match via IDs without version
+    chunk <- chunk %>% filter(ID2 %in% am_mapped_to_ensembl_canonical$ID2)
     if (nrow(chunk) > 0) {
         subchunk <- select(chunk, "ID", "change", "score")
         subchunk <- unique(subchunk)
