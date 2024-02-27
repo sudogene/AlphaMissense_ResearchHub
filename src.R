@@ -176,3 +176,24 @@ write_chunk <- function(chunk, pos) {
 read_tsv_chunked("AlphaMissense_isoforms_aa_substitutions.tsv.gz",
                  DataFrameCallback$new(write_chunk),
                  comment = "#", chunk_size = 1000, show_col_types = F)
+
+
+# AlphaMissense_isoforms_hg38.tsv.gz -> am_mapped_to_ensembl_canonical -> am_iso_output.tsv
+cat("ID\tchange\tscore\n", file = "am_iso_output.tsv")
+
+write_chunk <- function(chunk, pos) {
+    chunk <- unique(chunk)
+    colnames(chunk) <- c("CHROM", "POS", "REF", "ALT", "genome",
+                         "ID", "change", "score", "am_class")
+    chunk <- chunk %>% mutate(ID2 = sub("\\.\\d+$", "", ID))
+    chunk <- chunk %>% filter(ID2 %in% am_mapped_to_ensembl_canonical$ID2)
+    if (nrow(chunk) > 0) {
+        subchunk <- select(chunk, "ID", "change", "score")
+        subchunk <- unique(subchunk)
+        write.table(subchunk, "am_iso_output.tsv",
+                    col.names = F, row.names = F, quote = F, append = T)
+    }
+}
+read_tsv_chunked("AlphaMissense_isoforms_hg38.tsv.gz",
+                 DataFrameCallback$new(write_chunk),
+                 comment = "#", chunk_size = 1000, show_col_types = F)
