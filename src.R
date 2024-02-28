@@ -6,7 +6,7 @@ collect_id <- function(index, output_file, max_size = 1000000) {
     # chunk & pos are fixed arguments of the callback function
     function(chunk, pos) {
         # ids is a global vector hence manipulated using <<-
-        ids <- c(ids, chunk[[index]])
+        ids <<- c(ids, chunk[[index]])
         ids <<- unique(ids)
         # if ids grow too large, write the partial result and reset the vector
         # there is a small chance a repeated value will slip through if the
