@@ -242,4 +242,96 @@ read_tsv_chunked("AlphaMissense_isoforms_aa_substitutions.tsv.gz",
 
 
 # --- Check the lengths
-# TODO
+library(tidyverse)
+am_map <- read_tsv("am_mapped_to_ensembl_canonical.txt")
+am_map <- am_map %>% mutate("amino_acids" = -1, "bases" = -1)
+### store the lengths
+
+am_length_aa <- am_map %>% select("ID", "amino_acids")
+collect_aa <- function(chunk, pos) {
+    chunk <- unique(chunk)
+    colnames(chunk) <- c("ID", "change", "score")
+    chunk <- chunk %>% filter(ID %in% am_map$ID)
+    if (nrow(chunk) > 0) {
+        chunk$aa_no <- chunk$change %>% str_extract("\\d+")
+        chunk <- chunk %>% group_by(ID) %>% summarize(amino_acids = max(as.numeric(aa_no)))
+        am_length_aa <<- am_length_aa %>%
+                        left_join(chunk, by = "ID") %>%
+                        mutate(amino_acids = pmax(amino_acids.y, amino_acids.x, na.rm = TRUE)) %>%
+                        select(ID, amino_acids)
+    }
+    return(invisible(NULL))
+}
+read_tsv_chunked("am.tsv.gz",
+                 DataFrameCallback$new(collect_aa), col_names = F,
+                 comment = "#", chunk_size = 10000, show_col_types = F)
+read_tsv_chunked("am_full.tsv.gz",
+                 DataFrameCallback$new(collect_aa), col_names = F,
+                 comment = "#", chunk_size = 10000, show_col_types = F)
+
+am_map$amino_acids <- am_length_aa$amino_acids
+
+library(Biostrings)
+fasta <- readDNAStringSet("Homo_sapiens.GRCh38.cds.all.fa.gz")
+ref_df <- tibble(ID = names(fasta), sequence = as.character(fasta))
+ref_df <- ref_df %>% mutate(ID = str_extract(ID, "ENST\\d+\\.\\d+"))
+
+am_length_bases <- am_map %>% select("ID", "bases")
+collect_bases <- function(chunk, pos) {
+    chunk <- unique(chunk)
+    colnames(chunk) <- c("ID", "change", "score")
+    chunk <- chunk %>% filter(ID %in% am_map$ID)
+    if (nrow(chunk) > 0) {
+        chunk <- chunk %>% filter(ID %in% am_map$ID)
+        chunk <- unique(chunk %>% select(ID))
+        cds <- c()
+        for (id in chunk$ID) {
+            seq <- ref_df %>% filter(ID == id) %>% pull(sequence)
+            seq <- sub("(TGA|TAG|TAA)$", "", seq)
+            cds <- c(cds, nchar(seq))
+        }
+        chunk$bases <- cds
+        am_length_bases <<- am_length_bases %>%
+                            left_join(chunk, by = "ID") %>%
+                            mutate(bases = pmax(bases.y, bases.x, na.rm = TRUE)) %>%
+                            select(ID, bases)
+        
+    }
+    return(invisible(NULL))
+}
+read_tsv_chunked("am.tsv.gz",
+                 DataFrameCallback$new(collect_bases), col_names = F,
+                 comment = "#", chunk_size = 10000, show_col_types = F)
+read_tsv_chunked("am_full.tsv.gz",
+                 DataFrameCallback$new(collect_bases), col_names = F,
+                 comment = "#", chunk_size = 10000, show_col_types = F)
+
+
+am_map$bases <- am_length_bases$bases
+am_map <- am_map %>% mutate(codons = bases / 3)
+
+mismatch_length_am <- am_map %>% filter(amino_acids != codons)
+### 774 out of 19308 have mismatched lengths
+matching_length_am <- am_map %>% filter(amino_acids == codons)
+
+
+# --- Write final output where lengths are matching
+write_chunk_filtered <- function(output_file) {
+    function(chunk, pos) {
+        colnames(chunk) <- c("ID", "change", "score")
+        chunk <- chunk %>% filter(ID %in% matching_length_am$ID)
+        if (nrow(chunk) > 0) {
+            write.table(chunk, output_file, sep = "\t",
+                        col.names = F, row.names = F, quote = F, append = T)
+        }
+    }
+}
+cat("ID\tchange\tscore\n", file = "am_filtered.tsv")
+read_tsv_chunked("am.tsv.gz",
+                 DataFrameCallback$new(write_chunk_filtered("am_filtered.tsv")),
+                 col_names = F, chunk_size = 10000, show_col_types = F)
+
+cat("ID\tchange\tscore\n", file = "am_full_filtered.tsv")
+read_tsv_chunked("am_full.tsv.gz",
+                 DataFrameCallback$new(write_chunk_filtered("am_full_filtered.tsv")),
+                 col_names = F, chunk_size = 10000, show_col_types = F)
