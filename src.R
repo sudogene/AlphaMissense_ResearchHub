@@ -255,6 +255,8 @@ collect_aa <- function(chunk, pos) {
     if (nrow(chunk) > 0) {
         chunk$aa_no <- chunk$change %>% str_extract("\\d+")
         chunk <- chunk %>% group_by(ID) %>% summarize(amino_acids = max(as.numeric(aa_no)))
+        # update am_length_aa only if the value in chunk is larger for the particular ID
+        # because we are reading in chunks, we don't immediately have the largest length
         am_length_aa <<- am_length_aa %>%
                         left_join(chunk, by = "ID") %>%
                         mutate(amino_acids = pmax(amino_acids.y, amino_acids.x, na.rm = TRUE)) %>%
