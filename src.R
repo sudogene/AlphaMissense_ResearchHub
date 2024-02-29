@@ -158,7 +158,7 @@ am_mapped_to_ensembl_canonical <- am_mapped_to_ensembl_canonical %>% filter(!(ID
 write.table(am_mapped_to_ensembl_canonical, "am_mapped_to_ensembl_canonical.txt", sep = "\t", quote = F, row.names = F)
 
 
-# --- Writing output
+# --- Writing output (intermediate) to prevent redundant processing later during length check
 
 # AlphaMissense_hg38.tsv.gz + AlphaMissense_isoforms_hg38.tsv.gz
 # -> filtered through `am_mapped_to_ensembl_canonical`
